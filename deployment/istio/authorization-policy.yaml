@@ -1,0 +1,35 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: otuken3d-auth
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: otuken3d
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/otuken3d"]
+        namespaces: ["default"]
+    to:
+    - operation:
+        methods: ["POST", "GET"]
+        paths: ["/api/*"]
+    when:
+    - key: request.auth.claims[iss]
+      values: ["https://auth.otuken3d.ai"]
+  - from:
+    - source:
+        namespaces: ["monitoring"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/metrics"]
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/admin"]
+    to:
+    - operation:
+        methods: ["*"]
+        paths: ["*"] 

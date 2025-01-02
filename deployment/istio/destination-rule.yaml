@@ -1,0 +1,47 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: otuken3d
+spec:
+  host: otuken3d
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30ms
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+      http:
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+  subsets:
+  - name: production
+    labels:
+      version: v1
+      environment: production
+    trafficPolicy:
+      loadBalancer:
+        simple: LEAST_CONN
+  - name: canary
+    labels:
+      version: v2
+      environment: canary
+    trafficPolicy:
+      loadBalancer:
+        simple: ROUND_ROBIN
+  - name: mirror
+    labels:
+      version: v1
+      environment: mirror
+    trafficPolicy:
+      loadBalancer:
+        simple: RANDOM 

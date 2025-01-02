@@ -1,0 +1,48 @@
+apiVersion: karpenter.sh/v1alpha5
+kind: Provisioner
+metadata:
+  name: otuken3d-spot
+spec:
+  requirements:
+    - key: karpenter.sh/capacity-type
+      operator: In
+      values: ["spot"]
+    - key: node.kubernetes.io/instance-type
+      operator: In
+      values: ["t3.large", "t3.xlarge", "m5.large", "m5.xlarge"]
+    - key: topology.kubernetes.io/zone
+      operator: In
+      values: ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+  limits:
+    resources:
+      cpu: 100
+      memory: 400Gi
+  providerRef:
+    name: default
+  ttlSecondsAfterEmpty: 30
+  ttlSecondsUntilExpired: 2592000
+  consolidation:
+    enabled: true
+---
+apiVersion: karpenter.k8s.aws/v1alpha1
+kind: AWSNodeTemplate
+metadata:
+  name: otuken3d-spot-template
+spec:
+  subnetSelector:
+    kubernetes.io/cluster/otuken3d: owned
+  securityGroupSelector:
+    kubernetes.io/cluster/otuken3d: owned
+  tags:
+    KarpenerProvisionerName: otuken3d-spot
+    NodeType: spot
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        encrypted: true
+  instanceProfile: otuken3d-spot-profile
+  userData: |
+    #!/bin/bash
+    echo "Running spot instance initialization..." 

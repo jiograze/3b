@@ -1,0 +1,58 @@
+# Ötüken3D Merkezi Yapılandırma Dosyası
+
+# Sistem yapılandırması
+system:
+  log_dir: "logs"
+  temp_dir: "temp"
+  cache_dir: "cache"
+  model_dir: "models"
+  data_dir: "data"
+
+# Python yapılandırması
+python:
+  min_version: "3.8.0"
+  max_version: "3.11.0"
+  packages:
+    torch: ">=2.0.0"
+    transformers: ">=4.30.0"
+    diffusers: ">=0.3.0"
+    numpy: ">=1.19.0"
+    pillow: ">=8.0.0"
+
+# Model yapılandırması
+model:
+  name: "otuken3d"
+  version: "1.0.0"
+  architecture:
+    embedding_dim: 512
+    hidden_dim: 1024
+    num_layers: 12
+  training:
+    batch_size: 32
+    learning_rate: 0.0001
+    max_epochs: 100
+
+# Veri seti yapılandırması
+datasets:
+  default:
+    - name: "ShapeNet"
+      priority: 1
+      size_gb: 1.2
+    - name: "ModelNet"
+      priority: 2
+      size_gb: 1.5
+    - name: "Thingi10K"
+      priority: 1
+      size_gb: 1.2
+
+# Logging yapılandırması
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  handlers:
+    - type: "file"
+      filename: "logs/otuken3d.log"
+      max_bytes: 10485760  # 10MB
+      backup_count: 5
+    - type: "console"
+      level: "INFO" 

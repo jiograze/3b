@@ -1,0 +1,95 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: otuken3d
+spec:
+  hosts:
+  - "api.otuken3d.ai"
+  gateways:
+  - otuken3d-gateway
+  http:
+  # Production traffic
+  - name: "production-route"
+    match:
+    - headers:
+        x-env:
+          exact: production
+    route:
+    - destination:
+        host: otuken3d
+        subset: production
+      weight: 100
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+      retryOn: "gateway-error,connect-failure,refused-stream"
+    timeout: 5s
+    fault:
+      delay:
+        percentage:
+          value: 0.1
+        fixedDelay: 5s
+    corsPolicy:
+      allowOrigins:
+      - exact: "https://otuken3d.ai"
+      allowMethods:
+      - POST
+      - GET
+      - OPTIONS
+      allowHeaders:
+      - content-type
+      - authorization
+      maxAge: "24h"
+
+  # Canary deployment
+  - name: "canary-route"
+    match:
+    - headers:
+        x-env:
+          exact: canary
+    route:
+    - destination:
+        host: otuken3d
+        subset: canary
+      weight: 20
+    - destination:
+        host: otuken3d
+        subset: production
+      weight: 80
+
+  # Circuit breaking
+  - name: "circuit-breaker"
+    route:
+    - destination:
+        host: otuken3d
+        subset: production
+    circuitBreaker:
+      outlierDetection:
+        consecutive5xxErrors: 5
+        interval: 30s
+        baseEjectionTime: 30s
+        maxEjectionPercent: 100
+
+  # Traffic mirroring
+  - name: "mirror-route"
+    route:
+    - destination:
+        host: otuken3d
+        subset: production
+    mirror:
+      host: otuken3d
+      subset: mirror
+    mirrorPercentage:
+      value: 100.0
+
+  # Rate limiting
+  - name: "rate-limit"
+    route:
+    - destination:
+        host: otuken3d
+        subset: production
+    rateLimit:
+      quotaPolicy:
+        maxRequestsPerSecond: 100
+        validDuration: 1s
+      overrideHeaderName: "x-ratelimit-override" 

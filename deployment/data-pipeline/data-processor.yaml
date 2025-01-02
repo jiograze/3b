@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-processor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: data-processor
+  template:
+    metadata:
+      labels:
+        app: data-processor
+    spec:
+      containers:
+      - name: data-processor
+        image: otuken3d/data-processor:latest
+        env:
+        - name: MINIO_ENDPOINT
+          value: "minio-api:9000"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-creds
+              key: accessKey
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-creds
+              key: secretKey
+        - name: REDIS_URL
+          value: "redis:6379"
+        - name: POSTGRES_URL
+          value: "postgresql://user:pass@postgres:5432/otuken3d"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: 2
+            memory: 4Gi
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: data-cache
+          mountPath: /cache
+        - name: config
+          mountPath: /etc/data-processor
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data-cache
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: data-processor-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-processor-config
+data:
+  config.yaml: |
+    pipeline:
+      input_buckets:
+        - raw-images
+        - raw-models
+        - raw-text
+      output_buckets:
+        - processed-images
+        - processed-models
+        - processed-text
+      batch_size: 32
+      num_workers: 4
+      preprocessing:
+        image:
+          resize: [256, 256]
+          normalize: true
+          augmentation: true
+        model:
+          format: glb
+          simplify: true
+          normalize: true
+        text:
+          tokenize: true
+          clean: true
+          language: tr
+      validation:
+        enabled: true
+        ratio: 0.2
+      caching:
+        enabled: true
+        ttl: 3600
+      monitoring:
+        metrics_port: 8080
+        profiling: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-processor
+spec:
+  ports:
+  - port: 8080
+    name: metrics
+  selector:
+    app: data-processor 

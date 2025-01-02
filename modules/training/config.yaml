@@ -1,0 +1,77 @@
+model:
+  text_encoder: "google/t5-v1_1-base"
+  voxel_size: 64
+  latent_dim: 512
+
+training:
+  batch_size: 32
+  num_epochs: 100
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  save_every: 5
+  early_stopping_patience: 10
+  
+  optimizer:
+    type: "AdamW"
+    params:
+      betas: [0.9, 0.999]
+      eps: 1e-8
+      
+  scheduler:
+    type: "ReduceLROnPlateau"
+    params:
+      mode: "min"
+      factor: 0.5
+      patience: 5
+      verbose: true
+
+data:
+  train_data_dir: "data/processed/train"
+  val_data_dir: "data/processed/val"
+  num_workers: 8
+  prefetch_factor: 2
+  
+  augmentation:
+    enabled: true
+    rotation_range: [-30, 30]
+    scale_range: [0.8, 1.2]
+    jitter_strength: 0.1
+    
+  preprocessing:
+    normalize_mesh: true
+    center_mesh: true
+    scale_to_unit: true
+    
+  validation_split: 0.2
+
+logging:
+  project_name: "otuken3d"
+  log_dir: "logs"
+  checkpoint_dir: "checkpoints"
+  
+  wandb:
+    enabled: true
+    entity: "otuken3d"
+    tags: ["text-to-3d", "turkish-art"]
+    
+  tensorboard:
+    enabled: true
+    log_every: 100
+    
+monitoring:
+  metrics:
+    - "loss"
+    - "chamfer_distance"
+    - "edge_loss"
+    - "laplacian_loss"
+    
+  visualization:
+    enabled: true
+    num_samples: 4
+    save_format: "gif"
+    
+resources:
+  gpu_memory_fraction: 0.9
+  num_gpus: 1
+  mixed_precision: true
+  gradient_checkpointing: true 

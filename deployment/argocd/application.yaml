@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otuken3d
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/otuken3d/otuken3d.git'
+    path: deployment/kubernetes
+    targetRevision: HEAD
+    helm:
+      valueFiles:
+        - values-production.yaml
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
+  revisionHistoryLimit: 10 

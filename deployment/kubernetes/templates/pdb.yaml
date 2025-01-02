@@ -1,0 +1,18 @@
+{{- if .Values.app.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "otuken3d.fullname" . }}
+  labels:
+    {{- include "otuken3d.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.app.pdb.minAvailable }}
+  minAvailable: {{ .Values.app.pdb.minAvailable }}
+  {{- end }}
+  {{- if .Values.app.pdb.maxUnavailable }}
+  maxUnavailable: {{ .Values.app.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "otuken3d.selectorLabels" . | nindent 6 }}
+{{- end }} 

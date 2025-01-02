@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: otuken3d
+  namespace: argocd
+spec:
+  description: Otuken3D Project
+  sourceRepos:
+  - 'https://github.com/otuken3d/otuken3d.git'
+  destinations:
+  - namespace: default
+    server: https://kubernetes.default.svc
+  - namespace: monitoring
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  namespaceResourceBlacklist:
+  - group: ''
+    kind: ResourceQuota
+  - group: ''
+    kind: LimitRange
+  roles:
+  - name: project-admin
+    description: Project Admin
+    policies:
+    - p, proj:otuken3d:project-admin, applications, *, otuken3d/*, allow
+    groups:
+    - otuken3d-admins
+  - name: project-readonly
+    description: Read-only access
+    policies:
+    - p, proj:otuken3d:project-readonly, applications, get, otuken3d/*, allow
+    groups:
+    - otuken3d-viewers
+  orphanedResources:
+    warn: true 

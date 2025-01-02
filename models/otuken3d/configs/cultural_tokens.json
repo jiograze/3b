@@ -1,0 +1,21 @@
+{
+    "motifs": [
+        "kıvrım", "rumi", "hatai", "palmet", "lotus",
+        "çintemani", "bulut", "hayat_ağacı", "ejder", "simurg"
+    ],
+    "patterns": [
+        "geometrik", "bitkisel", "yazı", "figürlü", "karma"
+    ],
+    "styles": [
+        "Göktürk", "Uygur", "Selçuklu", "Osmanlı", "Çağdaş"
+    ],
+    "materials": [
+        "ahşap", "taş", "metal", "seramik", "tekstil"
+    ],
+    "special_tokens": {
+        "MOTIF_START": "<motif>",
+        "MOTIF_END": "</motif>",
+        "STYLE_START": "<style>",
+        "STYLE_END": "</style>"
+    }
+}

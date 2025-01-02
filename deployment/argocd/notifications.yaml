@@ -1,0 +1,33 @@
+apiVersion: notifications.argoproj.io/v1alpha1
+kind: NotificationConfig
+metadata:
+  name: otuken3d-notifications
+  namespace: argocd
+spec:
+  templates:
+    - name: deployment-status
+      body: |
+        Application: {{.app.metadata.name}}
+        Status: {{.app.status.sync.status}}
+        Health: {{.app.status.health.status}}
+        Operation: {{.app.status.operationState.operation}}
+        Message: {{.app.status.operationState.message}}
+  triggers:
+    - name: on-sync-status-change
+      condition: app.status.sync.status != prev.app.status.sync.status
+      template: deployment-status
+    - name: on-health-status-change
+      condition: app.status.health.status != prev.app.status.health.status
+      template: deployment-status
+  services:
+    - name: slack
+      slack:
+        token: $slack-token
+        channel: "#deployments"
+    - name: email
+      email:
+        host: smtp.gmail.com
+        port: 587
+        from: notifications@otuken3d.ai
+        username: $email-username
+        password: $email-password 

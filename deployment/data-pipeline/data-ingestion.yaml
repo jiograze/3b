@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-ingestion
+spec:
+  schedule: "*/15 * * * *"  # Her 15 dakikada bir
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: data-ingestion
+            image: otuken3d/data-ingestion:latest
+            env:
+            - name: MINIO_ENDPOINT
+              value: "minio-api:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: accessKey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: secretKey
+            - name: POSTGRES_URL
+              value: "postgresql://user:pass@postgres:5432/otuken3d"
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+            volumeMounts:
+            - name: config
+              mountPath: /etc/data-ingestion
+          volumes:
+          - name: config
+            configMap:
+              name: data-ingestion-config
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-ingestion-config
+data:
+  config.yaml: |
+    sources:
+      - name: kaggle
+        type: kaggle
+        dataset_ids:
+          - "3d-models/turkish-historical-artifacts"
+          - "images/turkish-art-patterns"
+        credentials:
+          username: ${KAGGLE_USERNAME}
+          key: ${KAGGLE_KEY}
+      
+      - name: huggingface
+        type: huggingface
+        dataset_ids:
+          - "turkish-3d-models"
+          - "turkish-art-dataset"
+        token: ${HF_TOKEN}
+      
+      - name: custom-api
+        type: rest
+        url: "https://api.turkishartifacts.com/v1/dataset"
+        auth:
+          type: bearer
+          token: ${API_TOKEN}
+    
+    destinations:
+      minio:
+        buckets:
+          images: raw-images
+          models: raw-models
+          text: raw-text
+        
+      database:
+        table_prefix: raw_data_
+        batch_size: 1000
+    
+    validation:
+      image:
+        min_size: [64, 64]
+        max_size: [4096, 4096]
+        formats: [jpg, png, webp]
+      
+      model:
+        formats: [obj, fbx, glb]
+        max_size_mb: 100
+      
+      text:
+        min_length: 10
+        max_length: 1000
+        languages: [tr]
+    
+    monitoring:
+      metrics:
+        push_gateway: "http://prometheus-pushgateway:9091"
+        job_name: "data-ingestion"
+      
+      logging:
+        level: info
+        format: json 

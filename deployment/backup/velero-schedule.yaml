@@ -1,0 +1,69 @@
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: otuken3d-daily-backup
+  namespace: velero
+spec:
+  schedule: "0 1 * * *"  # Her gün saat 01:00'de
+  template:
+    includedNamespaces:
+      - default
+      - monitoring
+    includedResources:
+      - deployments
+      - services
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+    labelSelector:
+      matchLabels:
+        app: otuken3d
+    storageLocation: default
+    volumeSnapshotLocations:
+      - default
+    ttl: 720h  # 30 gün
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: otuken3d-hourly-backup
+  namespace: velero
+spec:
+  schedule: "0 * * * *"  # Her saat başı
+  template:
+    includedNamespaces:
+      - default
+    includedResources:
+      - deployments
+      - configmaps
+      - secrets
+    labelSelector:
+      matchLabels:
+        app: otuken3d
+    storageLocation: default
+    ttl: 24h  # 1 gün
+---
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: default
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: otuken3d-backup
+    prefix: cluster-backup
+  config:
+    region: eu-central-1
+    s3ForcePathStyle: true
+    s3Url: https://s3.eu-central-1.amazonaws.com
+---
+apiVersion: velero.io/v1
+kind: VolumeSnapshotLocation
+metadata:
+  name: default
+  namespace: velero
+spec:
+  provider: aws
+  config:
+    region: eu-central-1 

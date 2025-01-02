@@ -1,0 +1,254 @@
+# Default values for Ötüken3D Helm chart
+
+# Global settings
+global:
+  environment: production
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: standard
+
+# Application settings
+app:
+  name: otuken3d
+  version: 1.0.0
+  replicas: 3
+  image:
+    repository: otuken3d
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  
+  # Pod security context
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  
+  # Container security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+  
+  # Pod disruption budget
+  pdb:
+    enabled: true
+    minAvailable: 2
+  
+  # Horizontal pod autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Liveness probe
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  
+  # Readiness probe
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+# Service settings
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  annotations: {}
+
+# Ingress settings
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.otuken3d.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: otuken3d-tls
+      hosts:
+        - api.otuken3d.ai
+
+# Redis settings
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: ""  # Will be auto-generated if not set
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+  metrics:
+    enabled: true
+
+# PostgreSQL settings
+postgresql:
+  enabled: true
+  auth:
+    username: otuken3d
+    password: ""  # Will be auto-generated if not set
+    database: otuken3d
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+  metrics:
+    enabled: true
+
+# Monitoring settings
+monitoring:
+  # Prometheus
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  # Grafana
+  grafana:
+    enabled: true
+    adminPassword: ""  # Will be auto-generated if not set
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+    persistence:
+      enabled: true
+      size: 10Gi
+    service:
+      type: ClusterIP
+
+# Logging settings
+logging:
+  # Elasticsearch
+  elasticsearch:
+    enabled: true
+    replicas: 3
+    persistence:
+      enabled: true
+      size: 30Gi
+  
+  # Kibana
+  kibana:
+    enabled: true
+    service:
+      type: ClusterIP
+  
+  # Fluentd
+  fluentd:
+    enabled: true
+    configMapFiles:
+      fluent.conf: |
+        <source>
+          @type forward
+          port 24224
+          bind 0.0.0.0
+        </source>
+        
+        <match **>
+          @type elasticsearch
+          host elasticsearch-master
+          port 9200
+          logstash_format true
+          logstash_prefix otuken3d
+          include_tag_key true
+        </match>
+
+# Storage settings
+storage:
+  # S3 compatible storage
+  s3:
+    enabled: true
+    bucket: otuken3d-data
+    region: us-east-1
+    endpoint: ""  # Optional, for custom S3 endpoints
+    accessKey: ""
+    secretKey: ""
+  
+  # Persistent volume claims
+  persistence:
+    enabled: true
+    models:
+      size: 100Gi
+      storageClass: standard
+    data:
+      size: 50Gi
+      storageClass: standard
+    cache:
+      size: 20Gi
+      storageClass: standard
+
+# Security settings
+security:
+  # Pod security policies
+  psp:
+    enabled: true
+  
+  # Network policies
+  networkPolicies:
+    enabled: true
+  
+  # Service accounts
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  
+  # RBAC
+  rbac:
+    create: true
+  
+  # Secret management
+  secretsManager:
+    enabled: true
+    provider: vault  # or aws-secrets-manager
+    vault:
+      enabled: true
+      server:
+        dev:
+          enabled: false
+      injector:
+        enabled: true
+
+# Backup settings
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention:
+    days: 30
+  destination:
+    s3:
+      bucket: otuken3d-backups
+      region: us-east-1
+      accessKey: ""
+      secretKey: ""
+
+# Development settings
+development:
+  enabled: false
+  debug: false
+  hot_reload: false
+  test_data: false 

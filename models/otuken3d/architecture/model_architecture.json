@@ -1,0 +1,29 @@
+{
+    "base_model": {
+        "type": "point-e",
+        "config": "base40M-textvec"
+    },
+    "cultural_embeddings": {
+        "type": "learned",
+        "dim": 512,
+        "num_tokens": 10000
+    },
+    "transformer": {
+        "num_layers": 12,
+        "num_heads": 8,
+        "hidden_dim": 1024,
+        "mlp_dim": 4096,
+        "dropout": 0.1
+    },
+    "point_decoder": {
+        "type": "folding",
+        "num_points": 2048,
+        "grid_size": 32,
+        "feature_dim": 512
+    },
+    "style_encoder": {
+        "type": "resnet",
+        "num_layers": 18,
+        "pretrained": true
+    }
+}

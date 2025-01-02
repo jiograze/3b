@@ -1,0 +1,36 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: otuken3d-restore
+  namespace: velero
+spec:
+  backupName: otuken3d-daily-backup
+  includedNamespaces:
+  - default
+  - monitoring
+  includedResources:
+  - deployments
+  - services
+  - configmaps
+  - secrets
+  - persistentvolumeclaims
+  labelSelector:
+    matchLabels:
+      app: otuken3d
+  restorePVs: true
+  preserveNodePorts: true
+  hooks:
+    resources:
+    - name: restore-hook
+      includedNamespaces:
+      - default
+      postHooks:
+      - exec:
+          command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Running post-restore tasks..."
+            kubectl rollout restart deployment/otuken3d
+          onError: Fail
+          timeout: 300s 

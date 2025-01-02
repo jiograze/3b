@@ -1,0 +1,49 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: otuken3d-failover
+spec:
+  host: otuken3d
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+  subsets:
+  - name: primary
+    labels:
+      region: primary
+  - name: failover
+    labels:
+      region: failover
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: otuken3d-failover
+spec:
+  hosts:
+  - otuken3d
+  http:
+  - route:
+    - destination:
+        host: otuken3d
+        subset: primary
+      weight: 100
+    - destination:
+        host: otuken3d
+        subset: failover
+      weight: 0
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+      retryOn: connect-failure,refused-stream,unavailable,cancelled,resource-exhausted
+    timeout: 5s
+    fault:
+      delay:
+        percentage:
+          value: 0
+        fixedDelay: 7s 

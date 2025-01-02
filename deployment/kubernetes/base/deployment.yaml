@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otuken3d
+  labels:
+    app: otuken3d
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otuken3d
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: otuken3d
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+      - name: otuken3d
+        image: otuken3d/api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+            nvidia.com/gpu: "1"
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: MODEL_PATH
+          value: "/models/text2shape.pt"
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: otuken3d-config
+              key: redis_url
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: otuken3d-secrets
+              key: api_key
+        volumeMounts:
+        - name: models
+          mountPath: /models
+        - name: cache
+          mountPath: /cache
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: models-pvc
+      - name: cache
+        emptyDir: {}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu
+                operator: Exists
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule 

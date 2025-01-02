@@ -1,0 +1,19 @@
+model_path: "models/checkpoints"
+data_path: "data"
+device: "cuda"
+batch_size: 1
+
+model_config:
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  dropout: 0.1
+
+training_config:
+  learning_rate: 1e-4
+  max_epochs: 100
+  save_interval: 10
+
+ui_config:
+  theme: "light"
+  max_file_size: 10485760  # 10MB

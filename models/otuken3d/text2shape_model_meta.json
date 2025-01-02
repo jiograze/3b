@@ -1,0 +1,32 @@
+{
+    "name": "Ötüken3D Text2Shape Model",
+    "version": "1.0.0",
+    "description": "Metinden 3D model oluşturma modeli",
+    "architecture": {
+        "name": "Text2Shape",
+        "type": "generative",
+        "input": "text",
+        "output": "3d_model"
+    },
+    "training": {
+        "epochs": 100,
+        "final_loss": 0.3281656503677368,
+        "dataset": "ShapeNet",
+        "optimizer": "Adam"
+    },
+    "performance": {
+        "average_generation_time": "8-10 seconds",
+        "supported_formats": [
+            "obj",
+            "stl",
+            "ply",
+            "off",
+            "gltf"
+        ]
+    },
+    "requirements": {
+        "python": ">=3.8",
+        "torch": ">=2.0.0",
+        "cuda": ">=11.0 (optional)"
+    }
+}
