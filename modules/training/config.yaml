@@ -1,18 +1,53 @@
 model:
+  name: "otuken3d"
+  version: "1.0.0"
+  base_model: "point-e"
+  language: "tr"
   text_encoder: "google/t5-v1_1-base"
   voxel_size: 64
   latent_dim: 512
+  point_encoder:
+    type: resnet50
+    pretrained: true
+    output_dim: 512
+  text_encoder:
+    type: bert
+    pretrained: true
+    output_dim: 512
+  transformer:
+    num_layers: 6
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+  point_decoder:
+    num_points: 2048
+    hidden_dim: 512
+    num_folding_steps: 2
+
+architecture:
+  embedding_dim: 512
+  hidden_dim: 1024
+  num_layers: 12
+  num_heads: 8
+  dropout: 0.1
+  
+cultural:
+  vocab_size: 10000
+  num_motifs: 1000
+  style_categories: 50
+  pattern_types: 100
 
 training:
   batch_size: 32
   num_epochs: 100
-  learning_rate: 1e-4
-  weight_decay: 1e-5
-  save_every: 5
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  save_every: 10
   early_stopping_patience: 10
+  warmup_steps: 1000
   
   optimizer:
-    type: "AdamW"
+    type: adam
     params:
       betas: [0.9, 0.999]
       eps: 1e-8
@@ -25,6 +60,21 @@ training:
       patience: 5
       verbose: true
 
+  # Kayıp fonksiyonu ağırlıkları
+  loss_weights:
+    point_loss: 1.0
+    text_loss: 1.0
+    
+  # Checkpoint kaydetme
+  checkpoint_dir: checkpoints
+  
+  # Doğrulama
+  validation_freq: 1
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+
 data:
   train_data_dir: "data/processed/train"
   val_data_dir: "data/processed/val"
@@ -35,7 +85,16 @@ data:
     enabled: true
     rotation_range: [-30, 30]
     scale_range: [0.8, 1.2]
-    jitter_strength: 0.1
+    translation_range: 0.1
+    noise_std: 0.01
+    dropout_ratio: 0.1
+    jitter_strength: 0.01
+    
+    # Metin artırma parametreleri
+    deletion_prob: 0.1
+    num_swaps: 1
+    num_replacements: 1
+    num_insertions: 1
     
   preprocessing:
     normalize_mesh: true
@@ -43,6 +102,12 @@ data:
     scale_to_unit: true
     
   validation_split: 0.2
+
+generation:
+  num_points: 2048
+  temperature: 0.8
+  top_k: 40
+  top_p: 0.95
 
 logging:
   project_name: "otuken3d"

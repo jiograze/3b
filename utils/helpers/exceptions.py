@@ -24,4 +24,28 @@ class ValidationError(Otuken3DError):
 
 class DependencyError(Otuken3DError):
     """Bağımlılık hataları"""
-    pass 
+    pass
+
+class ModelError(Exception):
+    """Model ile ilgili hatalar için özel istisna sınıfı"""
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+class DataError(Exception):
+    """Veri ile ilgili hatalar için özel istisna sınıfı"""
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+class ConfigError(Exception):
+    """Konfigürasyon ile ilgili hatalar için özel istisna sınıfı"""
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+class TrainingError(Exception):
+    """Eğitim ile ilgili hatalar için özel istisna sınıfı"""
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message) 

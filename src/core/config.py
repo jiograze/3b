@@ -1,135 +1,196 @@
 """
-Konfigürasyon Yönetimi
+Yapılandırma Modülü
 """
 
 import os
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
+from copy import deepcopy
+import yaml
+import logging
 
-def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Konfigürasyon dosyasını yükler"""
+from src.core.types import PathLike
+
+logger = logging.getLogger(__name__)
+
+class ConfigError(Exception):
+    """Yapılandırma ile ilgili hatalar için özel istisna sınıfı"""
+    pass
+
+def load_config(config_path: Optional[PathLike] = None) -> Dict[str, Any]:
+    """Yapılandırma dosyasını yükler
     
-    # Varsayılan konfigürasyon
-    default_config = {
-        "app": {
-            "name": "Otuken3D",
-            "version": "0.1.0",
-            "description": "3D Model İşleme ve Dönüştürme API'si"
-        },
-        "server": {
-            "host": "0.0.0.0",
-            "port": 8000,
-            "workers": 4,
-            "timeout": 60
-        },
-        "storage": {
-            "temp_dir": "/tmp/otuken3d",
-            "max_upload_size": 100 * 1024 * 1024,  # 100MB
-            "allowed_extensions": [
-                ".obj", ".stl", ".ply", ".gltf", ".glb",
-                ".fbx", ".dae", ".3ds", ".blend"
-            ]
-        },
-        "processing": {
-            "max_vertices": 1000000,
-            "max_faces": 500000,
-            "default_simplify_ratio": 0.5,
-            "texture_size_limit": 4096
-        },
-        "logging": {
-            "level": "INFO",
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            "file": "logs/otuken3d.log"
-        },
-        "security": {
-            "api_key_required": False,
-            "allowed_origins": ["*"],
-            "rate_limit": {
-                "requests": 100,
-                "period": 60  # saniye
+    Args:
+        config_path: Yapılandırma dosyası yolu
+        
+    Returns:
+        Yapılandırma sözlüğü
+        
+    Raises:
+        ConfigError: Yapılandırma yükleme veya doğrulama hatası
+        FileNotFoundError: Yapılandırma dosyası bulunamadığında
+    """
+    try:
+        # Varsayılan yapılandırma
+        config = {
+            'app': {
+                'name': 'Otuken3D',
+                'version': '0.1.0',
+                'description': '3B Model İşleme API'
+            },
+            'server': {
+                'host': '0.0.0.0',
+                'port': 8000,
+                'workers': 4,
+                'timeout': 60
+            },
+            'storage': {
+                'upload_dir': 'uploads',
+                'output_dir': 'outputs', 
+                'temp_dir': 'temp',
+                'max_file_size': 100 * 1024 * 1024  # 100MB
+            },
+            'processing': {
+                'max_vertices': 100000,
+                'max_faces': 50000,
+                'texture_size': 2048,
+                'texture_quality': 90
+            },
+            'logging': {
+                'level': 'INFO',
+                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                'file': 'logs/otuken3d.log'
+            },
+            'security': {
+                'allowed_formats': ['.obj', '.stl', '.ply', '.glb', '.gltf', '.fbx', '.dae'],
+                'allowed_origins': ['*'],
+                'max_batch_size': 10
             }
         }
-    }
-    
-    # Konfigürasyon dosyası yolu
-    if config_path is None:
-        config_path = os.environ.get(
-            "OTUKEN3D_CONFIG",
-            str(Path(__file__).parent.parent / "config.yml")
-        )
-    
-    # Konfigürasyon dosyasını oku
-    config = default_config.copy()
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                user_config = yaml.safe_load(f)
-                if user_config:
-                    _deep_update(config, user_config)
-        except Exception as e:
-            print(f"Konfigürasyon dosyası okuma hatası: {str(e)}")
-            print("Varsayılan konfigürasyon kullanılıyor.")
-    
-    # Çevre değişkenlerinden güncelle
-    _update_from_env(config)
-    
-    return config
 
-def _deep_update(base_dict: Dict, update_dict: Dict) -> None:
-    """İç içe sözlükleri günceller"""
-    for key, value in update_dict.items():
-        if (
-            key in base_dict and 
-            isinstance(base_dict[key], dict) and 
-            isinstance(value, dict)
-        ):
-            _deep_update(base_dict[key], value)
-        else:
-            base_dict[key] = value
-
-def _update_from_env(config: Dict) -> None:
-    """Çevre değişkenlerinden konfigürasyonu günceller"""
-    env_mapping = {
-        "OTUKEN3D_HOST": ("server", "host"),
-        "OTUKEN3D_PORT": ("server", "port"),
-        "OTUKEN3D_WORKERS": ("server", "workers"),
-        "OTUKEN3D_TEMP_DIR": ("storage", "temp_dir"),
-        "OTUKEN3D_MAX_UPLOAD": ("storage", "max_upload_size"),
-        "OTUKEN3D_LOG_LEVEL": ("logging", "level"),
-        "OTUKEN3D_LOG_FILE": ("logging", "file"),
-        "OTUKEN3D_API_KEY_REQUIRED": ("security", "api_key_required"),
-        "OTUKEN3D_ALLOWED_ORIGINS": ("security", "allowed_origins")
-    }
-    
-    for env_var, config_path in env_mapping.items():
-        value = os.environ.get(env_var)
-        if value is not None:
-            # Değeri doğru tipe dönüştür
-            current = config
-            for part in config_path[:-1]:
-                current = current[part]
+        if config_path:
+            config_path = Path(config_path)
             
-            original_value = current[config_path[-1]]
-            if isinstance(original_value, bool):
-                value = value.lower() in ('true', '1', 'yes')
-            elif isinstance(original_value, int):
-                value = int(value)
-            elif isinstance(original_value, float):
-                value = float(value)
-            elif isinstance(original_value, list):
-                value = value.split(',')
+            if not config_path.is_file():
+                raise FileNotFoundError(f"Yapılandırma dosyası bulunamadı: {config_path}")
                 
-            current[config_path[-1]] = value
-
-def get_config() -> Dict[str, Any]:
-    """Singleton konfigürasyon nesnesini döndürür"""
-    if not hasattr(get_config, "_config"):
-        get_config._config = load_config()
-    return get_config._config
-
-def reload_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Konfigürasyonu yeniden yükler"""
-    if hasattr(get_config, "_config"):
-        del get_config._config
-    return get_config() 
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    user_config = yaml.safe_load(f)
+                    
+                if not isinstance(user_config, dict):
+                    raise ConfigError("Yapılandırma dosyası geçerli bir YAML sözlüğü değil")
+                    
+                # Kullanıcı yapılandırmasını birleştir
+                _merge_config(config, user_config)
+                
+            except yaml.YAMLError as e:
+                raise ConfigError(f"YAML ayrıştırma hatası: {str(e)}")
+            except Exception as e:
+                raise ConfigError(f"Yapılandırma yükleme hatası: {str(e)}")
+                
+        # Çevre değişkenlerinden yükle
+        _load_env_config(config)
+        
+        # Yapılandırmayı doğrula
+        _validate_config(config)
+        
+        return config
+        
+    except Exception as e:
+        logger.error(f"Yapılandırma yükleme hatası: {str(e)}")
+        raise
+    
+def _merge_config(base: Dict[str, Any], override: Dict[str, Any]) -> None:
+    """İki yapılandırmayı birleştirir
+    
+    Args:
+        base: Temel yapılandırma
+        override: Üzerine yazılacak yapılandırma
+        
+    Note:
+        Override'daki yeni anahtarlar base'e eklenir.
+        Değerler derin kopyalama ile eklenir.
+    """
+    for key, value in override.items():
+        if key in base:
+            if isinstance(base[key], dict) and isinstance(value, dict):
+                _merge_config(base[key], value)
+            else:
+                base[key] = deepcopy(value)
+        else:
+            base[key] = deepcopy(value)
+            
+def _load_env_config(config: Dict[str, Any]) -> None:
+    """Çevre değişkenlerinden yapılandırma yükler
+    
+    Args:
+        config: Yapılandırma sözlüğü
+        
+    Raises:
+        ConfigError: Çevre değişkeni dönüştürme hatası
+    """
+    env_map = {
+        'OTUKEN3D_HOST': ('server', 'host', str),
+        'OTUKEN3D_PORT': ('server', 'port', int),
+        'OTUKEN3D_WORKERS': ('server', 'workers', int),
+        'OTUKEN3D_TIMEOUT': ('server', 'timeout', int),
+        'OTUKEN3D_UPLOAD_DIR': ('storage', 'upload_dir', str),
+        'OTUKEN3D_OUTPUT_DIR': ('storage', 'output_dir', str),
+        'OTUKEN3D_TEMP_DIR': ('storage', 'temp_dir', str),
+        'OTUKEN3D_MAX_FILE_SIZE': ('storage', 'max_file_size', int),
+        'OTUKEN3D_LOG_LEVEL': ('logging', 'level', str),
+        'OTUKEN3D_LOG_FILE': ('logging', 'file', str)
+    }
+    
+    for env_key, (section, key, type_func) in env_map.items():
+        value = os.environ.get(env_key)
+        if value is not None:
+            try:
+                # Yapılandırma yolunu izle
+                current = config
+                for part in section.split('.'):
+                    current = current[part]
+                
+                # Değeri dönüştür ve ata
+                try:
+                    current[key] = type_func(value)
+                except ValueError as e:
+                    raise ConfigError(f"Çevre değişkeni dönüştürme hatası - {env_key}: {str(e)}")
+                    
+            except KeyError as e:
+                logger.warning(f"Geçersiz yapılandırma yolu: {section}.{key}")
+                
+def _validate_config(config: Dict[str, Any]) -> None:
+    """Yapılandırmayı doğrular
+    
+    Args:
+        config: Yapılandırma sözlüğü
+        
+    Raises:
+        ConfigError: Doğrulama hatası
+    """
+    required_fields = {
+        'app': ['name', 'version'],
+        'server': ['host', 'port'],
+        'storage': ['upload_dir', 'output_dir', 'temp_dir'],
+        'logging': ['level', 'format', 'file']
+    }
+    
+    for section, fields in required_fields.items():
+        if section not in config:
+            raise ConfigError(f"Eksik yapılandırma bölümü: {section}")
+            
+        for field in fields:
+            if field not in config[section]:
+                raise ConfigError(f"Eksik yapılandırma alanı: {section}.{field}")
+                
+    # Port numarası kontrolü
+    if not (1024 <= config['server']['port'] <= 65535):
+        raise ConfigError("Port numarası 1024-65535 aralığında olmalıdır")
+        
+    # Dizin yolları kontrolü
+    for dir_key in ['upload_dir', 'output_dir', 'temp_dir']:
+        path = Path(config['storage'][dir_key])
+        if not path.is_absolute():
+            config['storage'][dir_key] = str(Path.cwd() / path) 

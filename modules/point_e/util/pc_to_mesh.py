@@ -5,13 +5,13 @@ import skimage
 import torch
 from tqdm.auto import tqdm
 
-from point_e.models.sdf import PointCloudSDFModel
+from ..models.sdf import PointCloudSDFModel
 
 from .mesh import TriMesh
 from .point_cloud import PointCloud
 
 
-def marching_cubes_mesh(
+def pc_to_mesh(
     pc: PointCloud,
     model: PointCloudSDFModel,
     batch_size: int = 4096,
@@ -94,3 +94,5 @@ def marching_cubes_mesh(
 def _nearest_vertex_channels(pc: PointCloud, verts: np.ndarray) -> Dict[str, np.ndarray]:
     nearest = pc.nearest_points(verts)
     return {ch: arr[nearest] for ch, arr in pc.channels.items()}
+
+__all__ = ["pc_to_mesh"]

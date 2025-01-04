@@ -1,80 +1,125 @@
-from abc import abstractmethod
-from typing import Dict, Optional
+"""
+SDF (Signed Distance Function) model implementation for point cloud processing.
+"""
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from typing import Dict, Optional
 
-from .perceiver import SimplePerceiver
 from .transformer import Transformer
-
+from .perceiver import SimplePerceiver
+from .util import timestep_embedding
 
 class PointCloudSDFModel(nn.Module):
-    @property
-    @abstractmethod
-    def device(self) -> torch.device:
-        """
-        Get the device that should be used for input tensors.
-        """
-
-    @property
-    @abstractmethod
-    def default_batch_size(self) -> int:
-        """
-        Get a reasonable default number of query points for the model.
-        In some cases, this might be the only supported size.
-        """
-
-    @abstractmethod
-    def encode_point_clouds(self, point_clouds: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Encode a batch of point clouds to cache part of the SDF calculation
-        done by forward().
-
-        :param point_clouds: a batch of [batch x 3 x N] points.
-        :return: a state representing the encoded point cloud batch.
-        """
-
-    def forward(
+    """
+    A model that predicts signed distance values for points in 3D space.
+    """
+    def __init__(
         self,
-        x: torch.Tensor,
-        point_clouds: Optional[torch.Tensor] = None,
-        encoded: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> torch.Tensor:
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        input_channels: int = 3,
+        output_channels: int = 1,
+        n_ctx: int = 1024,
+        width: int = 512,
+        layers: int = 12,
+        heads: int = 8,
+        init_scale: float = 0.25,
+        time_token_cond: bool = False,
+    ):
+        super().__init__()
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.n_ctx = n_ctx
+        self.time_token_cond = time_token_cond
+        
+        self.time_embed = nn.Sequential(
+            nn.Linear(width, width * 4, device=device, dtype=dtype),
+            nn.SiLU(),
+            nn.Linear(width * 4, width, device=device, dtype=dtype),
+        )
+        
+        self.ln_pre = nn.LayerNorm(width, device=device, dtype=dtype)
+        self.backbone = Transformer(
+            device=device,
+            dtype=dtype,
+            n_ctx=n_ctx + int(time_token_cond),
+            width=width,
+            layers=layers,
+            heads=heads,
+            init_scale=init_scale,
+        )
+        self.ln_post = nn.LayerNorm(width, device=device, dtype=dtype)
+        self.input_proj = nn.Linear(input_channels, width, device=device, dtype=dtype)
+        self.output_proj = nn.Linear(width, output_channels, device=device, dtype=dtype)
+        
+        # Initialize output projection to zero
+        with torch.no_grad():
+            self.output_proj.weight.zero_()
+            self.output_proj.bias.zero_()
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """
-        Predict the SDF at the coordinates x, given a batch of point clouds.
-
-        Either point_clouds or encoded should be passed. Only exactly one of
-        these arguments should be None.
-
-        :param x: a [batch x 3 x N'] tensor of query points.
-        :param point_clouds: a [batch x 3 x N] batch of point clouds.
-        :param encoded: the result of calling encode_point_clouds().
-        :return: a [batch x N'] tensor of SDF predictions.
+        Compute signed distance values for input points.
+        
+        Args:
+            x: Input points tensor of shape [batch_size, input_channels, n_points]
+            t: Timestep tensor of shape [batch_size]
+            
+        Returns:
+            Tensor of shape [batch_size, output_channels, n_points] containing SDF values
         """
-        assert point_clouds is not None or encoded is not None
-        assert point_clouds is None or encoded is None
-        if point_clouds is not None:
-            encoded = self.encode_point_clouds(point_clouds)
-        return self.predict_sdf(x, encoded)
+        assert x.shape[-1] == self.n_ctx, f"Expected {self.n_ctx} points, got {x.shape[-1]}"
+        
+        # Embed timesteps
+        t_emb = self.time_embed(timestep_embedding(t, self.backbone.width))
+        
+        # Project input points to feature space
+        h = self.input_proj(x.permute(0, 2, 1))  # [B, N, C]
+        
+        # Add time embeddings
+        if not self.time_token_cond:
+            h = h + t_emb[:, None]
+        else:
+            h = torch.cat([t_emb[:, None], h], dim=1)
+        
+        # Apply transformer backbone
+        h = self.ln_pre(h)
+        h = self.backbone(h)
+        h = self.ln_post(h)
+        
+        # Remove time token if used
+        if self.time_token_cond:
+            h = h[:, 1:]
+            
+        # Project to output space
+        h = self.output_proj(h)
+        
+        return h.permute(0, 2, 1)  # [B, C, N]
 
-    @abstractmethod
-    def predict_sdf(
-        self, x: torch.Tensor, encoded: Optional[Dict[str, torch.Tensor]]
-    ) -> torch.Tensor:
+    def compute_sdf(self, points: torch.Tensor, t: torch.Tensor = None) -> torch.Tensor:
         """
-        Predict the SDF at the query points given the encoded point clouds.
-
-        Each query point should be treated independently, only conditioning on
-        the point clouds themselves.
+        Compute signed distance values for arbitrary points.
+        
+        Args:
+            points: Input points tensor of shape [batch_size, 3, n_points]
+            t: Optional timestep tensor of shape [batch_size], defaults to 0
+            
+        Returns:
+            Tensor of shape [batch_size, 1, n_points] containing SDF values
         """
-
+        if t is None:
+            t = torch.zeros(points.shape[0], device=points.device)
+            
+        return self.forward(points, t)
 
 class CrossAttentionPointCloudSDFModel(PointCloudSDFModel):
     """
     Encode point clouds using a transformer, and query points using cross
     attention to the encoded latents.
     """
-
     def __init__(
         self,
         *,
@@ -88,7 +133,7 @@ class CrossAttentionPointCloudSDFModel(PointCloudSDFModel):
         decoder_heads: int = 8,
         init_scale: float = 0.25,
     ):
-        super().__init__()
+        super().__init__(device=device, dtype=dtype, n_ctx=n_ctx, width=width, layers=encoder_layers, heads=encoder_heads, init_scale=init_scale)
         self._device = device
         self.n_ctx = n_ctx
 
@@ -121,9 +166,18 @@ class CrossAttentionPointCloudSDFModel(PointCloudSDFModel):
 
     @property
     def default_batch_size(self) -> int:
-        return self.n_query
+        return self.n_ctx
 
     def encode_point_clouds(self, point_clouds: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Encode a batch of point clouds to cache part of the SDF calculation.
+
+        Args:
+            point_clouds: a batch of [batch x 3 x N] points.
+            
+        Returns:
+            A state representing the encoded point cloud batch.
+        """
         h = self.encoder_input_proj(point_clouds.permute(0, 2, 1))
         h = self.encoder(h)
         return dict(latents=h)
@@ -131,6 +185,16 @@ class CrossAttentionPointCloudSDFModel(PointCloudSDFModel):
     def predict_sdf(
         self, x: torch.Tensor, encoded: Optional[Dict[str, torch.Tensor]]
     ) -> torch.Tensor:
+        """
+        Predict the SDF at the query points given the encoded point clouds.
+
+        Args:
+            x: a [batch x 3 x N'] tensor of query points.
+            encoded: the result of calling encode_point_clouds().
+            
+        Returns:
+            A [batch x N'] tensor of SDF predictions.
+        """
         data = encoded["latents"]
         x = self.decoder_input_proj(x.permute(0, 2, 1))
         x = self.decoder(x, data)

@@ -1,0 +1,31 @@
+model:
+  name: "otuken3d_text2shape"
+  version: "1.0.0"
+  base_model: "point-e"
+  language: "tr"
+  text_encoder: "dbmdz/bert-base-turkish-cased"
+  
+architecture:
+  embedding_dim: 512
+  hidden_dim: 1024
+  num_layers: 12
+  num_heads: 8
+  dropout: 0.1
+  
+text_processing:
+  max_length: 77
+  add_special_tokens: true
+  truncation: true
+  padding: "max_length"
+  
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  warmup_steps: 1000
+  max_epochs: 100
+  
+generation:
+  num_points: 2048
+  temperature: 0.8
+  top_k: 40
+  top_p: 0.95 

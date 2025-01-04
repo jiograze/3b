@@ -2,227 +2,235 @@
 
 import torch
 import numpy as np
-import trimesh
 from typing import Dict, List, Union, Optional, Tuple
-from scipy.spatial.distance import chamfer_distance
-import open3d as o3d
-
-from ..core.logger import setup_logger
-from ..core.exceptions import ProcessingError
+from utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
-def compute_chamfer_distance(
-    pred_points: np.ndarray,
-    target_points: np.ndarray,
-    normalize: bool = True
-) -> float:
-    """Compute Chamfer distance between two point clouds."""
+def chamfer_distance(
+    x: Union[np.ndarray, torch.Tensor],
+    y: Union[np.ndarray, torch.Tensor],
+    reduce_mean: bool = True,
+    device: Optional[str] = None
+) -> Union[float, torch.Tensor]:
+    """İki nokta bulutu arasındaki Chamfer mesafesini hesapla
+    
+    Args:
+        x: İlk nokta bulutu (N x 3)
+        y: İkinci nokta bulutu (M x 3)
+        reduce_mean: Ortalama al
+        device: Hesaplama yapılacak cihaz (None ise CPU)
+        
+    Returns:
+        Chamfer mesafesi
+        
+    Raises:
+        ValueError: Geçersiz girdi boyutları veya tipleri için
+    """
+    # Girdi kontrolü
+    if not isinstance(x, (np.ndarray, torch.Tensor)) or not isinstance(y, (np.ndarray, torch.Tensor)):
+        raise ValueError("Girdiler numpy.ndarray veya torch.Tensor olmalı")
+        
+    # Boyut kontrolü
+    if len(x.shape) != 2 or len(y.shape) != 2 or x.shape[1] != 3 or y.shape[1] != 3:
+        raise ValueError("Girdiler (N x 3) ve (M x 3) boyutlarında olmalı")
+    
+    # NumPy dizilerini PyTorch'a çevir
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x.astype(np.float32))
+    if isinstance(y, np.ndarray):
+        y = torch.from_numpy(y.astype(np.float32))
+        
+    # Veri tipini float yap
+    x = x.float()
+    y = y.float()
+    
+    # Cihaza taşı
+    if device is not None:
+        x = x.to(device)
+        y = y.to(device)
+    elif x.is_cuda or y.is_cuda:
+        # Eğer girdilerden biri GPU'daysa diğerini de GPU'ya taşı
+        device = 'cuda'
+        x = x.to(device)
+        y = y.to(device)
+    
     try:
-        if normalize:
-            # Normalize to unit sphere
-            pred_center = pred_points.mean(axis=0)
-            pred_points = pred_points - pred_center
-            pred_scale = np.abs(pred_points).max()
-            pred_points = pred_points / pred_scale
-            
-            target_center = target_points.mean(axis=0)
-            target_points = target_points - target_center
-            target_scale = np.abs(target_points).max()
-            target_points = target_points / target_scale
+        # Her x noktası için en yakın y noktasını bul
+        xx = torch.sum(x ** 2, dim=1, keepdim=True)     # N x 1
+        yy = torch.sum(y ** 2, dim=1)                   # M
+        xy = torch.matmul(x, y.t())                     # N x M
         
-        # Compute bidirectional Chamfer distance
-        dist = chamfer_distance(pred_points, target_points)
-        return float(dist)
+        # Öklid mesafesi karesi: ||x_i - y_j||^2 = ||x_i||^2 + ||y_j||^2 - 2<x_i,y_j>
+        dist = xx + yy - 2 * xy                         # N x M
         
-    except Exception as e:
-        raise ProcessingError(f"Chamfer distance computation failed: {str(e)}")
+        # En yakın noktaları bul
+        dist_xy = torch.min(dist, dim=1)[0]             # N
+        dist_yx = torch.min(dist, dim=0)[0]             # M
+        
+        # Chamfer mesafesi
+        cd = torch.mean(dist_xy) + torch.mean(dist_yx) if reduce_mean else (dist_xy, dist_yx)
+        
+        return cd.cpu() if reduce_mean else (dist_xy.cpu(), dist_yx.cpu())
+        
+    except RuntimeError as e:
+        logger.error(f"Chamfer mesafesi hesaplanırken hata: {str(e)}")
+        raise
 
-def compute_iou(
-    pred_voxels: np.ndarray,
-    target_voxels: np.ndarray,
-    threshold: float = 0.5
-) -> float:
-    """Compute Intersection over Union (IoU) between two voxel grids."""
-    try:
-        # Binarize voxels
-        pred_binary = (pred_voxels > threshold).astype(np.float32)
-        target_binary = (target_voxels > threshold).astype(np.float32)
+def edge_loss(points: torch.Tensor) -> torch.Tensor:
+    """Kenar kaybı hesapla
+    
+    Args:
+        points: Nokta bulutu (B x N x 3)
         
-        # Compute intersection and union
-        intersection = np.logical_and(pred_binary, target_binary).sum()
-        union = np.logical_or(pred_binary, target_binary).sum()
-        
-        # Compute IoU
-        iou = intersection / (union + 1e-6)
-        return float(iou)
-        
-    except Exception as e:
-        raise ProcessingError(f"IoU computation failed: {str(e)}")
+    Returns:
+        Kenar kaybı
+    """
+    # Komşu noktalar arası mesafe
+    diff = points[:, 1:] - points[:, :-1]           # B x (N-1) x 3
+    edge_length = torch.norm(diff, dim=2)           # B x (N-1)
+    
+    # Ortalama kenar uzunluğu
+    mean_length = torch.mean(edge_length, dim=1)    # B
+    
+    # Kenar uzunluklarının varyansı
+    loss = torch.mean((edge_length - mean_length.unsqueeze(1)) ** 2)
+    
+    return loss
 
-def compute_fscore(
-    pred_points: np.ndarray,
-    target_points: np.ndarray,
-    threshold: float = 0.01
-) -> Tuple[float, float, float]:
-    """Compute F-score between two point clouds."""
-    try:
-        # Convert to Open3D point clouds
-        pred_pcd = o3d.geometry.PointCloud()
-        pred_pcd.points = o3d.utility.Vector3dVector(pred_points)
+def laplacian_loss(points: torch.Tensor, k: int = 4) -> torch.Tensor:
+    """Laplacian kaybı hesapla
+    
+    Args:
+        points: Nokta bulutu (B x N x 3)
+        k: Komşu sayısı
         
-        target_pcd = o3d.geometry.PointCloud()
-        target_pcd.points = o3d.utility.Vector3dVector(target_points)
-        
-        # Compute distances
-        dist1 = np.asarray(pred_pcd.compute_point_cloud_distance(target_pcd))
-        dist2 = np.asarray(target_pcd.compute_point_cloud_distance(pred_pcd))
-        
-        # Compute precision and recall
-        precision = (dist1 < threshold).mean()
-        recall = (dist2 < threshold).mean()
-        
-        # Compute F-score
-        f_score = 2 * precision * recall / (precision + recall + 1e-6)
-        
-        return float(f_score), float(precision), float(recall)
-        
-    except Exception as e:
-        raise ProcessingError(f"F-score computation failed: {str(e)}")
+    Returns:
+        Laplacian kaybı
+    """
+    batch_size, num_points, _ = points.shape
+    
+    # Her nokta için en yakın k komşuyu bul
+    dist = torch.cdist(points, points)              # B x N x N
+    _, idx = torch.topk(dist, k=k+1, dim=2, largest=False)  # B x N x (k+1)
+    idx = idx[:, :, 1:]                            # İlk indeks noktanın kendisi
+    
+    # Komşu noktaları al
+    batch_idx = torch.arange(batch_size).view(-1, 1, 1).expand(-1, num_points, k)
+    point_idx = torch.arange(num_points).view(1, -1, 1).expand(batch_size, -1, k)
+    neighbors = points[batch_idx, idx]              # B x N x k x 3
+    
+    # Laplacian koordinatları
+    mean_neighbors = torch.mean(neighbors, dim=2)   # B x N x 3
+    laplacian = points - mean_neighbors
+    
+    # L2 normu
+    loss = torch.mean(torch.sum(laplacian ** 2, dim=2))
+    
+    return loss
 
-def compute_surface_metrics(
-    pred_mesh: trimesh.Trimesh,
-    target_mesh: trimesh.Trimesh,
-    num_samples: int = 10000
+def compute_metrics(
+    pred_points: torch.Tensor,
+    target_points: torch.Tensor,
+    device: Optional[str] = None
 ) -> Dict[str, float]:
-    """Compute surface-based metrics between two meshes."""
-    try:
-        # Sample points from meshes
-        pred_points = pred_mesh.sample(num_samples)
-        target_points = target_mesh.sample(num_samples)
+    """Tüm metrikleri hesapla
+    
+    Args:
+        pred_points: Tahmin edilen nokta bulutu (B x N x 3)
+        target_points: Hedef nokta bulutu (B x N x 3)
+        device: Hesaplama yapılacak cihaz (None ise CPU)
         
-        # Compute metrics
-        chamfer_dist = compute_chamfer_distance(pred_points, target_points)
-        f_score, precision, recall = compute_fscore(pred_points, target_points)
-        
-        # Compute additional mesh statistics
-        pred_volume = pred_mesh.volume
-        target_volume = target_mesh.volume
-        volume_diff = abs(pred_volume - target_volume) / (target_volume + 1e-6)
-        
-        pred_area = pred_mesh.area
-        target_area = target_mesh.area
-        area_diff = abs(pred_area - target_area) / (target_area + 1e-6)
-        
-        return {
-            "chamfer_distance": chamfer_dist,
-            "f_score": f_score,
-            "precision": precision,
-            "recall": recall,
-            "volume_difference": float(volume_diff),
-            "surface_area_difference": float(area_diff)
-        }
-        
-    except Exception as e:
-        raise ProcessingError(f"Surface metrics computation failed: {str(e)}")
+    Returns:
+        Metrik değerleri
+    """
+    metrics = {}
+    
+    # Chamfer mesafesi
+    cd = chamfer_distance(pred_points, target_points, device=device)
+    metrics['chamfer_distance'] = cd.item()
+    
+    # Kenar kaybı
+    el = edge_loss(pred_points)
+    metrics['edge_loss'] = el.item()
+    
+    # Laplacian kaybı
+    ll = laplacian_loss(pred_points)
+    metrics['laplacian_loss'] = ll.item()
+    
+    return metrics
 
 class ModelEvaluator:
-    """Model evaluation class."""
+    """Model değerlendirme sınıfı"""
     
-    def __init__(self, metrics: Optional[List[str]] = None):
-        self.metrics = metrics or [
-            "chamfer_distance",
-            "iou",
-            "f_score",
-            "surface_metrics"
-        ]
-    
-    def evaluate_single(
-        self,
-        prediction: Dict[str, Union[np.ndarray, trimesh.Trimesh]],
-        target: Dict[str, Union[np.ndarray, trimesh.Trimesh]]
-    ) -> Dict[str, float]:
-        """Evaluate a single prediction."""
-        results = {}
+    def __init__(self, device: str = 'cuda'):
+        """
+        Args:
+            device: Değerlendirme cihazı
+        """
+        self.device = device
         
-        try:
-            if "chamfer_distance" in self.metrics and "points" in prediction and "points" in target:
-                results["chamfer_distance"] = compute_chamfer_distance(
-                    prediction["points"],
-                    target["points"]
-                )
-            
-            if "iou" in self.metrics and "voxels" in prediction and "voxels" in target:
-                results["iou"] = compute_iou(
-                    prediction["voxels"],
-                    target["voxels"]
-                )
-            
-            if "f_score" in self.metrics and "points" in prediction and "points" in target:
-                f_score, precision, recall = compute_fscore(
-                    prediction["points"],
-                    target["points"]
-                )
-                results.update({
-                    "f_score": f_score,
-                    "precision": precision,
-                    "recall": recall
-                })
-            
-            if "surface_metrics" in self.metrics and "mesh" in prediction and "mesh" in target:
-                surface_metrics = compute_surface_metrics(
-                    prediction["mesh"],
-                    target["mesh"]
-                )
-                results.update(surface_metrics)
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Evaluation failed: {str(e)}")
-            return {metric: float("nan") for metric in self.metrics}
-    
     def evaluate_batch(
         self,
-        predictions: List[Dict[str, Union[np.ndarray, trimesh.Trimesh]]],
-        targets: List[Dict[str, Union[np.ndarray, trimesh.Trimesh]]]
-    ) -> Dict[str, List[float]]:
-        """Evaluate a batch of predictions."""
-        batch_results = {metric: [] for metric in self.metrics}
+        model: torch.nn.Module,
+        batch: Dict[str, torch.Tensor]
+    ) -> Dict[str, float]:
+        """Batch değerlendir
         
-        for pred, target in zip(predictions, targets):
-            single_results = self.evaluate_single(pred, target)
-            for metric, value in single_results.items():
-                batch_results[metric].append(value)
-        
-        return batch_results
-    
-    def compute_statistics(
-        self,
-        results: Dict[str, List[float]]
-    ) -> Dict[str, Dict[str, float]]:
-        """Compute statistics for evaluation results."""
-        stats = {}
-        
-        for metric, values in results.items():
-            values = np.array(values)
-            values = values[~np.isnan(values)]  # Remove NaN values
+        Args:
+            model: Model
+            batch: Veri batch'i
             
-            if len(values) > 0:
-                stats[metric] = {
-                    "mean": float(np.mean(values)),
-                    "std": float(np.std(values)),
-                    "median": float(np.median(values)),
-                    "min": float(np.min(values)),
-                    "max": float(np.max(values))
-                }
-            else:
-                stats[metric] = {
-                    "mean": float("nan"),
-                    "std": float("nan"),
-                    "median": float("nan"),
-                    "min": float("nan"),
-                    "max": float("nan")
-                }
+        Returns:
+            Metrik değerleri
+        """
+        model.eval()
         
-        return stats 
+        with torch.no_grad():
+            # Veriyi GPU'ya taşı
+            batch = {k: v.to(self.device) for k, v in batch.items()}
+            
+            # İleri geçiş
+            outputs = model(batch)
+            
+            # Metrikleri hesapla
+            metrics = compute_metrics(
+                outputs['point_cloud'],
+                batch['target_points'],
+                device=self.device
+            )
+            
+        return metrics
+        
+    def evaluate_loader(
+        self,
+        model: torch.nn.Module,
+        data_loader: torch.utils.data.DataLoader
+    ) -> Dict[str, float]:
+        """Veri yükleyiciyi değerlendir
+        
+        Args:
+            model: Model
+            data_loader: Veri yükleyici
+            
+        Returns:
+            Ortalama metrik değerleri
+        """
+        model.eval()
+        
+        total_metrics = {}
+        num_batches = len(data_loader)
+        
+        with torch.no_grad():
+            for batch in data_loader:
+                # Batch değerlendir
+                batch_metrics = self.evaluate_batch(model, batch)
+                
+                # Metrikleri topla
+                for k, v in batch_metrics.items():
+                    total_metrics[k] = total_metrics.get(k, 0.0) + v
+                    
+        # Ortalama al
+        avg_metrics = {k: v / num_batches for k, v in total_metrics.items()}
+        
+        return avg_metrics 

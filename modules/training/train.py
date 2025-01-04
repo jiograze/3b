@@ -1,7 +1,13 @@
 import os
+import sys
 import argparse
 import torch
 import wandb
+
+# Proje kök dizinini Python yoluna ekle
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 from modules.training.otuken3d_model import Otuken3DModel
 from modules.training.data_loader import create_dataloader
@@ -17,10 +23,12 @@ def main():
                       help="Çıktı dizini")
                       
     # Model argümanları
-    parser.add_argument("--voxel_size", type=int, default=128,
+    parser.add_argument("--voxel_size", type=int, default=64,
                       help="Voxel grid boyutu")
     parser.add_argument("--latent_dim", type=int, default=768,
                       help="Latent uzay boyutu")
+    parser.add_argument("--num_classes", type=int, default=10,
+                      help="Sınıf sayısı")
                       
     # Eğitim argümanları
     parser.add_argument("--batch_size", type=int, default=32,
@@ -62,6 +70,7 @@ def main():
     model = Otuken3DModel(
         voxel_size=args.voxel_size,
         latent_dim=args.latent_dim,
+        num_classes=args.num_classes,
         device=device
     )
     
@@ -75,7 +84,7 @@ def main():
     
     val_loader = create_dataloader(
         args.data_dir,
-        split="val",
+        split="test",  # ModelNet10'da validation split yok, test kullanıyoruz
         batch_size=args.batch_size,
         num_workers=args.num_workers
     )

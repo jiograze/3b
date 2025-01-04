@@ -59,3 +59,4 @@ Thumbs.db
 # ROCm specific
 .hipCache/
 .rocmCache/ 
+.codegpt

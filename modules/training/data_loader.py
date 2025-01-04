@@ -10,25 +10,80 @@ class Otuken3DDataset(Dataset):
         self.split = split
         self.transform = transform
         
-        # Veri dizinini kontrol et
-        split_dir = self.data_dir / split
-        if not split_dir.exists():
-            raise ValueError(f"Veri dizini bulunamadı: {split_dir}")
+        # Tüm sınıf dizinlerini bul
+        self.class_dirs = [d for d in self.data_dir.iterdir() if d.is_dir() and d.name != '__MACOSX']
+        if not self.class_dirs:
+            raise ValueError(f"Sınıf dizinleri bulunamadı: {self.data_dir}")
             
-        # Veri dosyalarını listele
-        self.voxel_files = list(split_dir.glob('*.npy'))
-        if not self.voxel_files:
-            raise ValueError(f"Veri dosyası bulunamadı: {split_dir}")
+        # Her sınıf için split dizinindeki OFF dosyalarını bul
+        self.samples = []
+        self.labels = []
+        for class_idx, class_dir in enumerate(sorted(self.class_dirs)):
+            split_dir = class_dir / split
+            if not split_dir.exists():
+                continue
+                
+            off_files = list(split_dir.glob('*.off'))
+            self.samples.extend(off_files)
+            self.labels.extend([class_idx] * len(off_files))
             
-        print(f"{split} veri seti yüklendi: {len(self.voxel_files)} örnek")
+        if not self.samples:
+            raise ValueError(f"OFF dosyası bulunamadı: {split} split")
+            
+        print(f"{split} veri seti yüklendi: {len(self.samples)} örnek")
 
     def __len__(self):
-        return len(self.voxel_files)
+        return len(self.samples)
+
+    def read_off(self, file_path):
+        """OFF dosyasını oku ve voxelize et."""
+        vertices = []
+        faces = []
+        
+        with open(file_path) as f:
+            # İlk satırı oku (OFF başlığı)
+            line = f.readline().strip()
+            if line != 'OFF':
+                line = f.readline().strip()
+                
+            # Vertex ve face sayılarını oku
+            n_verts, n_faces, _ = map(int, f.readline().strip().split())
+            
+            # Vertexleri oku
+            for i in range(n_verts):
+                vertex = list(map(float, f.readline().strip().split()))
+                vertices.append(vertex)
+                
+            # Faceları oku
+            for i in range(n_faces):
+                face = list(map(int, f.readline().strip().split()))
+                faces.append(face[1:])  # İlk sayı face vertex sayısı
+                
+        vertices = np.array(vertices)
+        faces = np.array(faces)
+        
+        # Normalize vertices to unit cube
+        vertices -= vertices.min(axis=0)
+        vertices /= vertices.max()
+        
+        # Simple voxelization (64x64x64)
+        voxel_size = 64
+        voxels = np.zeros((voxel_size, voxel_size, voxel_size))
+        
+        # Vertex positions to voxel coordinates
+        voxel_coords = (vertices * (voxel_size-1)).astype(int)
+        
+        # Mark voxels that contain vertices
+        for coord in voxel_coords:
+            x, y, z = coord
+            voxels[x, y, z] = 1
+            
+        return voxels
 
     def __getitem__(self, idx):
-        # Voxel dosyasını yükle
-        voxel_path = self.voxel_files[idx]
-        voxel_data = np.load(voxel_path)
+        # OFF dosyasını oku ve voxelize et
+        off_path = self.samples[idx]
+        voxel_data = self.read_off(off_path)
         voxel_tensor = torch.from_numpy(voxel_data).float()
         
         # Kanal boyutunu ekle
@@ -39,7 +94,10 @@ class Otuken3DDataset(Dataset):
         if self.transform:
             voxel_tensor = self.transform(voxel_tensor)
             
-        return voxel_tensor
+        # Label tensor'a çevir
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+            
+        return voxel_tensor, label
 
 def create_dataloader(data_dir, split='train', batch_size=32, num_workers=4):
     """Veri yükleyici oluşturur."""

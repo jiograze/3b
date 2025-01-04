@@ -1,110 +1,138 @@
 # Otuken3D
 
-3D model işleme ve dönüştürme API'si.
+3B model işleme ve dönüştürme API'si.
 
 ## Özellikler
 
-- 3D model optimizasyonu ve onarımı
-- Doku haritası işleme ve dönüştürme
-- Format dönüşümü (OBJ, STL, PLY, GLTF, GLB)
-- Toplu işlem desteği
-- RESTful API arayüzü
+- 3B model optimizasyonu
+- Mesh onarımı
+- Doku haritası işleme
+- Format dönüştürme
+- Toplu işleme desteği
 
 ## Kurulum
 
-1. Depoyu klonlayın:
-```bash
-git clone https://github.com/jiograze/3b.git
-cd 3b
-```
+1. Python 3.8+ gereklidir.
 
-2. Sanal ortam oluşturun ve etkinleştirin:
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# veya
-.\venv\Scripts\activate  # Windows
-```
-
-3. Bağımlılıkları yükleyin:
+2. Bağımlılıkları yükleyin:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Kullanım
-
-1. Sunucuyu başlatın:
+3. Uygulamayı başlatın:
 ```bash
-cd src
-uvicorn main:app --reload
+python src/main.py
 ```
 
-2. API belgelerine erişin:
+Uygulama varsayılan olarak `http://0.0.0.0:8000` adresinde çalışacaktır.
+
+## API Kullanımı
+
+### Mesh Optimizasyonu
+
+```http
+POST /api/mesh/optimize
 ```
-http://localhost:8000/docs
+
+Parametreler:
+- `file`: 3B model dosyası
+- `target_faces`: Hedef üçgen sayısı (opsiyonel)
+- `preserve_uv`: UV koordinatlarını koru (varsayılan: true)
+
+### Mesh Onarımı
+
+```http
+POST /api/mesh/repair
 ```
 
-## API Uç Noktaları
-
-### Mesh İşleme
-
-- `POST /api/v1/mesh/optimize`: 3D modeli optimize eder
-- `POST /api/v1/mesh/repair`: 3D modeldeki hataları onarır
+Parametreler:
+- `file`: 3B model dosyası
+- `fix_normals`: Normalleri düzelt (varsayılan: true)
+- `remove_duplicates`: Tekrarlanan noktaları sil (varsayılan: true)
 
 ### Doku İşleme
 
-- `POST /api/v1/texture/process`: Doku haritasını işler
+```http
+POST /api/texture/process
+```
+
+Parametreler:
+- `file`: Doku dosyası
+- `width`: Yeni genişlik (opsiyonel)
+- `height`: Yeni yükseklik (opsiyonel)
+- `quality`: Çıktı kalitesi (0-100, opsiyonel)
 
 ### Format Dönüştürme
 
-- `POST /api/v1/convert`: Tekil model dönüştürme
-- `POST /api/v1/batch/convert`: Toplu model dönüştürme
+```http
+POST /api/convert
+```
 
-### Bilgi
+Parametreler:
+- `file`: 3B model dosyası
+- `output_format`: Çıktı formatı
+- `preserve_materials`: Materyalleri koru (varsayılan: true)
+- `optimize_mesh`: Mesh'i optimize et (varsayılan: true)
 
-- `GET /api/v1/formats`: Desteklenen formatları listeler
+### Toplu Dönüştürme
+
+```http
+POST /api/batch/convert
+```
+
+Parametreler:
+- `files`: 3B model dosyaları
+- `output_format`: Çıktı formatı
+- `preserve_materials`: Materyalleri koru (varsayılan: true)
+- `optimize_mesh`: Mesh'i optimize et (varsayılan: true)
+
+### Desteklenen Formatlar
+
+```http
+GET /api/formats
+```
+
+Desteklenen dosya formatlarını listeler.
 
 ## Yapılandırma
 
-Yapılandırma ayarları `config.yml` dosyasında veya çevre değişkenleriyle belirtilebilir:
+Uygulama ayarları `config.yml` dosyasından veya çevre değişkenlerinden yüklenebilir:
 
 ```yaml
 app:
-  name: "Otuken3D"
-  version: "0.1.0"
+  name: Otuken3D
+  version: 0.1.0
+  description: 3B Model İşleme API
 
 server:
-  host: "0.0.0.0"
+  host: 0.0.0.0
   port: 8000
   workers: 4
+  timeout: 60
 
 storage:
-  temp_dir: "/tmp/otuken3d"
-  max_upload_size: 104857600  # 100MB
-```
+  upload_dir: uploads
+  output_dir: outputs
+  temp_dir: temp
+  max_file_size: 104857600  # 100MB
 
-## Geliştirme
+processing:
+  max_vertices: 100000
+  max_faces: 50000
+  texture_size: 2048
+  texture_quality: 90
 
-1. Test çalıştırma:
-```bash
-pytest
-```
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: logs/otuken3d.log
 
-2. Kod formatı:
-```bash
-black src/
-```
-
-3. Lint kontrolü:
-```bash
-flake8 src/
-```
-
-4. Tip kontrolü:
-```bash
-mypy src/
+security:
+  allowed_formats: [".obj", ".stl", ".ply", ".glb", ".gltf", ".fbx", ".dae"]
+  allowed_origins: ["*"]
+  max_batch_size: 10
 ```
 
 ## Lisans
 
-Bu proje MIT lisansı altında lisanslanmıştır. Detaylar için `LICENSE` dosyasına bakın.
+MIT
